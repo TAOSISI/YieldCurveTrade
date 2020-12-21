@@ -71,7 +71,7 @@ def main():
     print(ret)
     windCTD = WindCTD()
     start_date = '2013-01-01'
-    end_date = '2020-11-16'
+    end_date = '2020-12-17'
     print(end_date, 'Starting')
     symbols = windCTD.getTFCodesFromWind()
     with open('FutureClose' + end_date + '.csv', 'w', newline='') as datacsv:

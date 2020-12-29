@@ -4,6 +4,8 @@ import numpy as np
 import math
 
 
+# 根据ReverseTrade文档修改了Simulate_ZS函数
+
 class StepReverse:
     def __init__(self, T_TFirret_path, ADPFutureClose_path, StepReverseSave_path, StepReverseZSSave_path, days,
                  quantiles):
@@ -190,8 +192,6 @@ class StepReverse:
         # 分布建仓并止损
 
     def Simulate_ZS(self, df, stop_point, start_point):
-        # df = self.GetPosition01()        #另一种平仓、开仓操作
-        # df = self.GetPosition()
         df['position_T'] = df['position_T90'].copy() + df['position_T80'].copy() + df['position_T70'].copy() + df[
             'position_T60'].copy()
         df['position_TF'] = df['position_TF90'].copy() + df['position_TF80'].copy() + df['position_TF70'].copy() + df[
@@ -204,19 +204,20 @@ class StepReverse:
         df['lag_position_TF'][0] = 0
 
         df['ZHJE'] = [1000000 for i in range(len(df['date_id']))]
+        df['XNJZ'] = [1000000 for i in range(len(df['date_id']))]
         df['KCSS'] = [0 for i in range(len(df['date_id']))]
-        df['XZZJ'] = [0 for i in range(len(df['date_id']))]
-        df['position_T_ZS'] = [0 for i in range(len(df['date_id']))]
-        df['position_TF_ZS'] = [0 for i in range(len(df['date_id']))]
+        df['XZZJ'] = [0.0 for i in range(len(df['date_id']))]
+        df['position_T_ZS'] = df['lag_position_T'].copy()
+        df['position_TF_ZS'] = df['lag_position_TF'].copy()
 
         df['MAXJZ'] = [0 for i in range(len(df['date_id']))]
         df['MINJZ'] = [0 for i in range(len(df['date_id']))]
         df['ismax'] = [0 for i in range(len(df['date_id']))]
         df['Drawdowns'] = [0.0 for i in range(len(df['date_id']))]
-        df['FCKC'] = [0.0 for i in range(len(df['date_id']))]
+        df['FCSY'] = [-0.0 for i in range(len(df['date_id']))]
 
         for i in range(1, len(df['ZHJE'])):
-
+            # 从平仓到开仓
             if (df['lag_position_T'][i - 1] == 0) & (df['lag_position_T'][i] != 0):
                 df['KCSS'][i] = math.floor(df['ZHJE'][i - 1] / (
                     max(2 * 0.012 * df['TF_settle'][i - 1] * 10000, 0.02 * df['T_settle'][i - 1] * 10000)) / 4)
@@ -224,98 +225,94 @@ class StepReverse:
                             df['T_settle'][i] - df['T_settle'][i - 1]) + \
                                 10000 * df['KCSS'][i] * df['lag_position_TF'][i] * (
                                             df['TF_settle'][i] - df['TF_settle'][i - 1]) + df['ZHJE'][i - 1]
-            elif (df['lag_position_T'][i - 1] != 0) & (df['lag_position_T'][i] != 0):
-                df['KCSS'][i] = df['KCSS'][i - 1]
-                df['ZHJE'][i] = 10000 * df['KCSS'][i] * df['lag_position_T'][i] * (
-                            df['T_settle'][i] - df['T_settle'][i - 1]) + \
-                                10000 * df['KCSS'][i] * df['lag_position_TF'][i] * (
-                                            df['TF_settle'][i] - df['TF_settle'][i - 1]) + df['ZHJE'][i - 1]
-            else:
-                df['KCSS'][i] = 0
-                df['ZHJE'][i] = df['ZHJE'][i - 1]
-            df['XZZJ'][i] = df['ZHJE'][i] - df['KCSS'][i] * max(2 * 0.012 * df['TF_settle'][i] * 10000,
-                                                                0.02 * df['T_settle'][i] * 10000) * abs(
-                df['lag_position_T'][i])
+                df['MAXJZ'][i] = max(df['MAXJZ'][i - 1], df['ZHJE'][i])
+                df['MINJZ'][i] = min(df['MINJZ'][i - 1], df['ZHJE'][i])
+                df['XNJZ'][i] = df['ZHJE'][i]
+                df['ismax'][i] = 1 if (df['MAXJZ'][i] > df['ZHJE'][i]) else 0
+                df['XZZJ'][i] = (df['ZHJE'][i] - df['KCSS'][i] * max(2 * 0.012 * df['TF_settle'][i] * 10000,
+                                                                     0.02 * df['T_settle'][i] * 10000) * abs(
+                    df['lag_position_T'][i])) / df['ZHJE'][i]
 
-        for i in range(1, len(df['ZHJE'])):
-            # print(i)
-            if (df['lag_position_T'][i - 1] == 0) & (df['lag_position_T'][i] != 0):
-                df['MAXJZ'][i] = df['ZHJE'][i]
-                df['MINJZ'][i] = df['ZHJE'][i]
-                df['ismax'][i] = 0
             else:
-                if (df['lag_position_T'][i - 1] != 0) & (df['lag_position_T'][i] != 0):
-                    if df['MAXJZ'][i - 1] <= df['ZHJE'][i]:
-                        df['MAXJZ'][i] = df['ZHJE'][i]
-                        df['MINJZ'][i] = df['ZHJE'][i]
-                        df['ismax'][i] = 0
-                    else:
-                        df['MAXJZ'][i] = df['MAXJZ'][i - 1]
-                        df['ismax'][i] = 1
+                if (df['lag_position_T'][i - 1] != 0) & (df['lag_position_T'][i] != 0):  # 从持仓到持仓
+                    df['KCSS'][i] = df['KCSS'][i - 1]
+                    df['XNJZ'][i] = 10000 * df['KCSS'][i] * df['lag_position_T'][i] * (
+                                df['T_settle'][i] - df['T_settle'][i - 1]) + \
+                                    10000 * df['KCSS'][i] * df['lag_position_TF'][i] * (
+                                                df['TF_settle'][i] - df['TF_settle'][i - 1]) + df['XNJZ'][i - 1]
+                    df['ZHJE'][i] = df['XNJZ'][i]
+
+                    # 计算辅助判断变量
+                    df['MAXJZ'][i] = max(df['MAXJZ'][i - 1], df['ZHJE'][i])
+                    df['ismax'][i] = 1 if (df['MAXJZ'][i - 1] > df['ZHJE'][i]) else 0
+
                     df['MINJZ'][i] = (min(df['MINJZ'][i - 1], df['ZHJE'][i])) if (df['ismax'][i] == 1) else df['ZHJE'][
                         i]
+                    df['Drawdowns'][i] = (df['MAXJZ'][i] - df['MINJZ'][i]) / df['MAXJZ'][i]
+                    df['FCSY'][i] = (df['XNJZ'][i] - df['MINJZ'][i]) / abs(df['MINJZ'][i])
 
-                    if (df['MAXJZ'][i] != 0) & (df['MINJZ'][i] != 0):
-                        df['Drawdowns'][i] = (df['MAXJZ'][i] - df['MINJZ'][i]) / df['MAXJZ'][i]
-                        df['FCKC'][i] = (df['ZHJE'][i] - df['MINJZ'][i]) / df['MINJZ'][i]
-                        # print(df['MAXJZ'][72],df['MINJZ'][72],df['Drawdowns'][72],df['FCKC'][72])
-            df['ismax'] = 0
+                    if (df['Drawdowns'][i - 1] > stop_point) & (df['FCSY'][i - 1] < start_point):  # 满足平仓条件
+                        # 平仓
+                        df['position_T_ZS'][i] = 0
+                        df['position_TF_ZS'][i] = 0
+                        df['ZHJE'][i] = df['ZHJE'][i - 1]
+                        df['XZZJ'][i] = 1
+                    else:
+                        if (df['FCSY'][i - 1] >= start_point) & (
+                                df['position_T_ZS'][i - 1] == 0):  # 若之前因Drawdown使得处于平仓状态，但FCSY[i-1]大于了0.2
+                            # 重新开仓
+                            df['KCSS'][i] = math.floor(df['ZHJE'][i - 1] / (
+                                max(2 * 0.012 * df['TF_settle'][i - 1] * 10000,
+                                    0.02 * df['T_settle'][i - 1] * 10000)) / 4)
+                            df['ZHJE'][i] = 10000 * df['KCSS'][i] * df['lag_position_T'][i] * (
+                                        df['T_settle'][i] - df['T_settle'][i - 1]) + \
+                                            10000 * df['KCSS'][i] * df['lag_position_TF'][i] * (
+                                                        df['TF_settle'][i] - df['TF_settle'][i - 1]) + df['ZHJE'][i - 1]
+                            # df['ZHJE'][i] = df['ZHJE'][i-1]
+                            df['XNJZ'][i] = df['ZHJE'][i]
+                            df['MAXJZ'][i] = df['ZHJE'][i]
+                            df['MINJZ'][i] = df['ZHJE'][i]
+                            df['XZZJ'][i] = (df['ZHJE'][i] - df['KCSS'][i] * max(2 * 0.012 * df['TF_settle'][i] * 10000,
+                                                                                 0.02 * df['T_settle'][
+                                                                                     i] * 10000) * abs(
+                                df['lag_position_T'][i])) / df['ZHJE'][i]
+                        else:  # 其余情况下，按照之前反转策略得到的positon进行仓位操作
+                            df['ZHJE'][i] = df['XNJZ'][i]
+                            df['XZZJ'][i] = (df['ZHJE'][i] - df['KCSS'][i] * max(2 * 0.012 * df['TF_settle'][i] * 10000,
+                                                                                 0.02 * df['T_settle'][
+                                                                                     i] * 10000) * abs(
+                                df['lag_position_T'][i])) / df['ZHJE'][i]
 
-        for i in range(1, len(df['ZHJE'])):
-            df['position_T_ZS'][i] = 0 if (df['Drawdowns'][i - 1] >= stop_point) else df['lag_position_T'][i]
-            df['position_TF_ZS'][i] = 0 if (df['Drawdowns'][i - 1] >= stop_point) else df['lag_position_TF'][i]
-            df['position_T_ZS'][i] = df['lag_position_T'][i] if (df['FCKC'][i-1] >= start_point) else \
-            df['position_T_ZS'][i]
-            df['position_TF_ZS'][i] = df['lag_position_TF'][i] if (df['FCKC'][i-1] >= start_point) else \
-            df['position_TF_ZS'][i]
+                else:  # 平仓到平仓和持仓到平仓的情况
+                    df['KCSS'][i] = 0
+                    df['ZHJE'][i] = df['ZHJE'][i - 1]
+                    df['XNJZ'][i] = df['ZHJE'][i - 1]
+                    df['MAXJZ'][i] = df['ZHJE'][i - 1]
+                    df['MINJZ'][i] = df['ZHJE'][i - 1]
+                    df['XZZJ'][i] = 1
 
-        df['ZHJE1'] = [1000000 for i in range(len(df['date_id']))]
-        df['KCSS1'] = [0 for i in range(len(df['date_id']))]
-        df['XZZJ1'] = [0 for i in range(len(df['date_id']))]
-
-        for i in range(1, len(df['ZHJE1'])):
-            if (df['position_T_ZS'][i - 1] == 0) & (df['position_T_ZS'][i] != 0):
-                df['KCSS1'][i] = math.floor(df['ZHJE1'][i - 1] / (
-                    max(2 * 0.012 * df['TF_settle'][i - 1] * 10000, 0.02 * df['T_settle'][i - 1] * 10000)) / 4)
-                df['ZHJE1'][i] = 10000 * df['KCSS1'][i] * df['position_T_ZS'][i] * (
-                            df['T_settle'][i] - df['T_settle'][i - 1]) + \
-                                 10000 * df['KCSS1'][i] * df['position_TF_ZS'][i] * (
-                                             df['TF_settle'][i] - df['TF_settle'][i - 1]) + df['ZHJE1'][i - 1]
-            elif (df['position_T_ZS'][i - 1] != 0) & (df['position_T_ZS'][i] != 0):
-                df['KCSS1'][i] = df['KCSS1'][i - 1]
-                df['ZHJE1'][i] = 10000 * df['KCSS1'][i] * df['position_T_ZS'][i] * (
-                            df['T_settle'][i] - df['T_settle'][i - 1]) + \
-                                 10000 * df['KCSS1'][i] * df['position_TF_ZS'][i] * (
-                                             df['TF_settle'][i] - df['TF_settle'][i - 1]) + df['ZHJE1'][i - 1]
-            else:
-                df['KCSS1'][i] = 0
-                df['ZHJE1'][i] = df['ZHJE1'][i - 1]
-            df['XZZJ1'][i] = df['ZHJE1'][i] - df['KCSS1'][i] * max(2 * 0.012 * df['TF_settle'][i] * 10000,
-                                                                   0.02 * df['T_settle'][i] * 10000) * abs(
-                df['position_T_ZS'][i])
-
-        # return df['ZHJE1']
-        df.to_csv(self.StepReverseZSSave_path ,index = False)
+        # return df['ZHJE']
+        df.to_csv(self.StepReverseZSSave_path, index=False)
 
 
 def main():
-    test = StepReverse('T_TFirret.csv', 'ADPFutureClose2020-09-16.csv', 'StepReverse.csv', 'StepReverseZS01.csv', 100,
+    test = StepReverse('T_TFirret.csv', 'ADPFutureClose2020-09-16.csv', 'StepReverse.csv', 'ReverseTrade.csv', 100,
                        [90, 80, 70, 60, 50, 40, 30, 20, 10])
-    df_p = test.GetPosition01()
+    df_p = test.GetPosition01()  # 选择根据反转策略得到的持仓操作
     '''
-    start_point = 0.01
-    stop_point = 0.01
+    start_point = 0.0
+    stop_point = 0.0
     df = pd.DataFrame()
-    
+
     while stop_point <= 0.21:
         while start_point <= 0.21:
             df[str(stop_point)+',  '+str(start_point)] = test.Simulate_ZS(df_p,stop_point,start_point)
-            start_point += 0.01
-        start_point = 0.1
-        stop_point += 0.01 
+            start_point += 0.05
+        start_point = 0.0
+        stop_point += 0.05 
     df.to_csv('test_start_stop.csv')
     '''
-    test.Simulate_ZS(df_p, 0.15, 0.2)
+    test.Simulate_ZS(df_p, 0.05, 0.2)
 
 
 if __name__ == "__main__":

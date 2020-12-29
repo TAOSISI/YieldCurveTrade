@@ -633,44 +633,63 @@ data1$ismax = 0
 data1$FCKC = 0
 for (i in c(2:length(data1$date_id))) {
   # i=9
+  # 上一日仓位为空，且今日仓位不为0，说明今日为首日开仓
   if(data1$lag_position_T[i-1]==0 & data1$lag_position_T[i]!=0){
+    # 以上一日资金账户的余额计算开仓手数
     data1$KCSS[i] = floor(data1$ZHJE[i-1]/max(2*0.012*data1$TF_settle[i-1]*10000,0.02*data1$T_settle[i-1]*10000)/4)
+    # 首日开仓计算当日结算价后的账户金额
     data1$ZHJE[i] = 10000*data1$KCSS[i]*data1$lag_position_T[i]*(data1$T_settle[i]-data1$T_settle[i-1])+
                     10000*data1$KCSS[i]*data1$lag_position_TF[i]*(data1$TF_settle[i]-data1$TF_settle[i-1]) + data1$ZHJE[i-1]
-    }
+  }
+  # 非首日开仓
   else{
+    # 前一日有仓位且今日也有仓位
     if(data1$lag_position_T[i-1]!=0 & data1$lag_position_T[i]!=0){
+      # 将上一日的开仓手数顺延至今日
       data1$KCSS[i] = data1$KCSS[i-1]
+      # 计算今日的收盘后结算价计的账户金额
       data1$ZHJE[i] = 10000*data1$KCSS[i]*data1$lag_position_T[i]*(data1$T_settle[i]-data1$T_settle[i-1])+
         10000*data1$KCSS[i]*data1$lag_position_TF[i]*(data1$TF_settle[i]-data1$TF_settle[i-1]) + data1$ZHJE[i-1]
     }
+    # 上一日有仓位且今日无仓位或上一日无仓位且今日无仓位
     else{
       data1$KCSS[i] = 0
       data1$ZHJE[i] = data1$ZHJE[i-1]
     }
   }
+  #计算闲置资金
   data1$XZZJ[i] = data1$ZHJE[i] - data1$KCSS[i]*max(2*0.012*data1$TF_settle[i]*10000,0.02*data1$T_settle[i]*10000)*abs(data1$lag_position_T[i])
 }
 for (i in c(2:length(data1$date_id))) {
   # i=9
+  # 上一日仓位为空，且今日仓位不为0，说明今日为首日开仓
   if(data1$lag_position_T[i-1]==0 & data1$lag_position_T[i]!=0){
+    # 首日开仓，今日账户金额为最大最小净值（修改：应该和开仓前资金相比较），由于这里最大值最小值和现值相同，所以比当前净值大还未出现，所以ismax为0
    data1$MAXJZ[i] = data1$ZHJE[i]
    data1$MINJZ[i] = data1$ZHJE[i]
    data1$ismax[i] = 0
     }
   else{
+    # 前一日有仓位且今日也有仓位
     if(data1$lag_position_T[i-1]!=0 & data1$lag_position_T[i]!=0){
+      # 如果前一日的最大净值小于当日的账户净值，那么当日账户净值位最大净值，最小净值为最大净值出现后的最小净值所以为当前账户净值，ismax为0
       if(data1$MAXJZ[i-1] <= data1$ZHJE[i]){
         data1$MAXJZ[i] = data1$ZHJE[i]
         data1$ismax[i] = 0
         data1$MINJZ[i] = data1$ZHJE[i]
       }
+      # 如果前一日的最大净值大于当前账户净值
       else{
+        # 最大净值仍为前一日最大净值，且ismax为1
         data1$MAXJZ[i] = data1$MAXJZ[i-1]
         data1$ismax[i] = 1
       }
+      # 如果ismax为1，最小净值为最小净值与当前净值较较小，如果ismax为0，最小净值为当日净值
+      # （修改：如果反抽线大于最大回撤线，则当前净值会大于前一日最大净值，所以不会跳转至此处）
       data1$MINJZ[i] = ifelse(data1$ismax[i] == 1,min(data1$MINJZ[i-1],data1$ZHJE[i]),data1$ZHJE[i])
+      # 本次开仓的最大回撤为当前最大净值减去最小净值除以最大净值
       data1$Drawdowns[i] = (data1$MAXJZ[i] - data1$MINJZ[i])/data1$MAXJZ[i]
+      # 反抽开仓为当前净值减去最小净值除以最小净值
       data1$FCKC[i] = (data1$ZHJE[i]-data1$MINJZ[i])/data1$MINJZ[i]
     }
   }

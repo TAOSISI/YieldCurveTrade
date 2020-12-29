@@ -32,7 +32,7 @@ library(TTR)
 
 #反转策略设置止损
 止损平仓的方式主要是基于净值的回撤，当原净值曲线回撤超过一定比例后，进行平仓。然而这一方式无法在后续回复期间获得收益。所以增加反抽开仓线。反抽开仓线有两种增加方式，一种是以隐含收益率序列回复作为反抽线。第二种方式是以假设按照原先的仓位继续持仓，当后续净值回复后再进行开仓操作。
-为了方便验证，我们先使用第一种方式在全仓进行处理。
+为了方便验证，我们先使用第二种方式在全仓进行处理。
 ```{r}
 #读取每日连续合约及其隐含收益率以及五年十年国债实际利差和隐含收益率利差
 data1 <- read.csv("T_TFirret.csv")
@@ -136,9 +136,9 @@ data1 <- as.data.frame(data1 %>% mutate(position_T90 = ifelse(FutYHret <= quan10
 
 ```{r}
 #分步持仓
-steps = 1
-data1 <- as.data.frame(data1 %>% mutate(position_T = position_T90,
-                                        position_TF = position_TF90))
+steps = 4
+data1 <- as.data.frame(data1 %>% mutate(position_T = position_T90+position_T80+position_T70+position_T60,
+                                        position_TF = position_TF90+position_TF80+position_TF70+position_TF60))
 data1$lag_position_T <- lag(data1$position_T)
 data1$lag_position_TF <- lag(data1$position_TF)
 data1 <- as.data.frame(data1 %>% mutate(lag_position_T = ifelse(is.na(lag_position_T),0,lag_position_T),
@@ -167,23 +167,30 @@ data1$FCSY = 0
 #计算
 for (i in c(2:length(data1$date_id))) {
   # i=202
-  #开仓前
+  # 上一日仓位为空，且今日仓位不为0，说明今日为首日开仓
   if(data1$lag_position_T[i-1]==0 & data1$lag_position_T[i]!=0){
     data1$KCSS[i] = floor(data1$ZHJE[i-1]/(max(2*0.012*data1$TF_settle[i-1]*10000,0.02*data1$T_settle[i-1]*10000)*steps))
     data1$ZHJE[i] = 10000*data1$KCSS[i]*data1$lag_position_T[i]*(data1$T_settle[i]-data1$T_settle[i-1])+
                     10000*data1$KCSS[i]*data1$lag_position_TF[i]*(data1$TF_settle[i]-data1$TF_settle[i-1]) + data1$ZHJE[i-1]
+    # 最大净值为前一日最大净值与当日净值最大值，解决了首日开仓净值变动的问题
     data1$MAXJZ[i] = max(data1$MAXJZ[i-1],data1$ZHJE[i])
     data1$MINJZ[i] = min(data1$MINJZ[i-1],data1$ZHJE[i])
+    # 引入虚拟净值，虚拟净值为止损平仓后，原持仓手数继续持仓的净值，用来计算反抽线
     data1$XNJZ[i] = data1$ZHJE[i]
+    # 如果首日最大净值大于账户金额，则ismax为1，表示开仓首日即亏损
     if(data1$MAXJZ[i] > data1$ZHJE[i]){data1$ismax[i] = 1}
+    # 计算闲置资金
     data1$XZZJ[i] = (data1$ZHJE[i] - data1$KCSS[i]*max(2*0.012*data1$TF_settle[i]*10000,0.02*data1$T_settle[i]*10000)*abs(data1$lag_position_T[i]))/data1$ZHJE[i]
     }
   else{
-    #有仓位
+    # 前一日有仓位且今日也有仓位
     if(data1$lag_position_T[i-1]!=0 & data1$lag_position_T[i]!=0){
+      # 延续上一日的仓位
       data1$KCSS[i] = data1$KCSS[i-1]
+      # 先计算虚拟持仓的资金
       data1$XNJZ[i] = 10000*data1$KCSS[i]*data1$lag_position_T[i]*(data1$T_settle[i]-data1$T_settle[i-1])+
           10000*data1$KCSS[i]*data1$lag_position_TF[i]*(data1$TF_settle[i]-data1$TF_settle[i-1]) + data1$XNJZ[i-1]
+      # 账户金额等于虚拟持仓的金额
       data1$ZHJE[i] = data1$XNJZ[i]
       data1$MAXJZ[i] = max(data1$MAXJZ[i-1],data1$ZHJE[i])
       if(data1$MAXJZ[i] > data1$ZHJE[i]){data1$ismax[i] = 1}

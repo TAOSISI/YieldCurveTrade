@@ -59,8 +59,8 @@ class StepReverse:
                 begin01 = False
                 begin02 = False
                 for i in range(len(df['date_id'])):
-                    # 从上到下
-                    if df['FutYHret'][i] >= df['quan' + str(quantile)][i]:
+
+                    if ((df['FutYHret'][i] >= df['quan' + str(quantile)][i])):
                         begin01 = True
 
                     if (((df['quan50'][i] < df['FutYHret'][i]) | (
@@ -68,18 +68,66 @@ class StepReverse:
                         df['position_T' + str(quantile)][i] = 1
                         df['position_TF' + str(quantile)][i] = -2
 
-                    if df['quan50'][i] >= df['FutYHret'][i]:
+                    if (df['quan50'][i] >= df['FutYHret'][i]):
                         begin01 = False
 
-                    if df['FutYHret'][i] <= df['quan' + str(100 - quantile)][i]:
+                    # 从下到上
+                    if ((df['FutYHret'][i] <= df['quan' + str(100 - quantile)][i])):
                         begin02 = True
-
+                    #
                     if ((df['FutYHret'][i] <= df['quan50'][i]) & begin02 & (
                             df['FutYHret'][i] < df['quan' + str(quantile)][i])):
                         df['position_T' + str(quantile)][i] = -1
                         df['position_TF' + str(quantile)][i] = 2
 
-                    if df['quan50'][i] < df['FutYHret'][i]:
+                    if (df['quan50'][i] < df['FutYHret'][i]):
+                        begin02 = False
+
+                df_test = pd.read_csv('StepReverse_ZS_T.csv', encoding='utf-8')
+
+                for i in range(len(df['position_T' + str(quantile)])):
+                    if df['position_T' + str(quantile)][i] != df_test['position_T' + str(quantile)][i]:
+                        print(quantile, i, df['position_T' + str(quantile)][i],
+                              df_test['position_T' + str(quantile)][i])
+
+        # df.to_csv(self.StepReverseSave_path,index = False)
+
+        return df
+        # 按原思路得到开仓平仓操作
+
+    def GetPosition02(self):
+        df = self.getQuantile()
+        for quantile in self.quantiles:
+            if quantile > 50:
+                df['position_T' + str(quantile)] = [0 for i in range(len(df['date_id']))]
+                df['position_TF' + str(quantile)] = [0 for i in range(len(df['date_id']))]
+                begin01 = False
+                begin02 = False
+                for i in range(len(df['date_id'])):
+                    if (df['quan' + str(quantile)][i] == df['quan' + str(100 - quantile)][i]) | (
+                            df['quan50'][i] == df['quan' + str(100 - quantile)][i]) | (
+                            df['quan' + str(quantile)][i] == df['quan50'][i]):
+                        continue
+
+                    if ((df['FutYHret'][i] >= df['quan' + str(quantile)][i])):
+                        begin01 = True
+
+                    if (((df['quan50'][i] <= df['FutYHret'][i])) & begin01):
+                        df['position_T' + str(quantile)][i] = 1
+                        df['position_TF' + str(quantile)][i] = -2
+
+                    if (df['quan50'][i] > df['FutYHret'][i]):
+                        begin01 = False
+
+                    # 从下到上
+                    if ((df['FutYHret'][i] <= df['quan' + str(100 - quantile)][i])):
+                        begin02 = True
+                    #
+                    if ((df['FutYHret'][i] <= df['quan50'][i]) & begin02):
+                        df['position_T' + str(quantile)][i] = -1
+                        df['position_TF' + str(quantile)][i] = 2
+
+                    if (df['quan50'][i] < df['FutYHret'][i]):
                         begin02 = False
 
                 df_test = pd.read_csv('StepReverse_ZS_T.csv', encoding='utf-8')
@@ -105,17 +153,18 @@ class StepReverse:
                 begin02 = False
                 for i in range(len(df['date_id'])):
 
-                    if df['FutYHret'][i] >= df['quan' + str(quantile)][i]:
+                    if ((df['FutYHret'][i] >= df['quan' + str(quantile)][i])):
                         begin01 = True
 
-                    if ((df['quan50'][i] <= df['FutYHret'][i]) | (df['FutYHret'][i] >= df['quan' + str(quantile)][i])) & begin01:
+                    if (((df['quan50'][i] <= df['FutYHret'][i]) | (
+                            df['FutYHret'][i] >= df['quan' + str(quantile)][i])) & begin01):
                         df['position_T' + str(quantile)][i] = 1
                         df['position_TF' + str(quantile)][i] = -2
 
-                    if df['quan50'][i] > df['FutYHret'][i]:
+                    if (df['quan50'][i] > df['FutYHret'][i]):
                         begin01 = False
                     # 从下到上
-                    if df['FutYHret'][i] <= df['quan' + str(100 - quantile)][i]:
+                    if ((df['FutYHret'][i] <= df['quan' + str(100 - quantile)][i])):
                         begin02 = True
 
                     if ((df['FutYHret'][i] <= df['quan50'][i]) & begin02 & (
@@ -123,7 +172,7 @@ class StepReverse:
                         df['position_T' + str(quantile)][i] = -1
                         df['position_TF' + str(quantile)][i] = 2
 
-                    if df['quan50'][i] < df['FutYHret'][i]:
+                    if (df['quan50'][i] < df['FutYHret'][i]):
                         begin02 = False
 
                 # 查看哪些时间点操作不一样
@@ -137,54 +186,12 @@ class StepReverse:
         # df.to_csv(self.StepReverseSave_path,index = False)
 
         return df
-        # 分布建仓
 
-    def Simulate(self):
-        df = self.GetPosition()
+        # 分布建仓并止损
 
-        df['position_T'] = df['position_T90'].copy() + df['position_T80'].copy() + df['position_T70'].copy() + df[
-            'position_T60'].copy()
-        df['position_TF'] = df['position_TF90'].copy() + df['position_TF80'].copy() + df['position_TF70'].copy() + df[
-            'position_TF60'].copy()
-
-        df['lag_position_T'] = df['position_T'].shift(1)
-        df['lag_position_TF'] = df['position_TF'].shift(1)
-
-        df['lag_position_T'][0] = 0
-        df['lag_position_TF'][0] = 0
-
-        df['ZHJE'] = [1000000 for i in range(len(df['date_id']))]
-        df['KCSS'] = [0 for i in range(len(df['date_id']))]
-        df['XZZJ'] = [0 for i in range(len(df['date_id']))]
-
-        for i in range(1, len(df['ZHJE'])):
-
-            if (df['lag_position_T'][i - 1] == 0) & (df['lag_position_T'][i] != 0):
-                df['KCSS'][i] = math.floor(df['ZHJE'][i - 1] / (
-                    max(2 * 0.012 * df['TF_settle'][i] * 10000, 0.02 * df['T_settle'][i] * 10000)) / 4)
-                df['ZHJE'][i] = 10000 * df['KCSS'][i] * df['lag_position_T'][i] * (
-                            df['T_settle'][i] - df['T_settle'][i - 1]) + \
-                                10000 * df['KCSS'][i] * df['lag_position_TF'][i] * (
-                                            df['TF_settle'][i] - df['TF_settle'][i - 1]) + df['ZHJE'][i - 1]
-            elif (df['lag_position_T'][i - 1] != 0) & (df['lag_position_T'][i] != 0):
-                df['KCSS'][i] = df['KCSS'][i - 1]
-                df['ZHJE'][i] = 10000 * df['KCSS'][i] * df['lag_position_T'][i] * (
-                            df['T_settle'][i] - df['T_settle'][i - 1]) + \
-                                10000 * df['KCSS'][i] * df['lag_position_TF'][i] * (
-                                            df['TF_settle'][i] - df['TF_settle'][i - 1]) + df['ZHJE'][i - 1]
-            else:
-                df['KCSS'][i] = 0
-                df['ZHJE'][i] = df['ZHJE'][i - 1]
-            df['XZZJ'][i] = df['ZHJE'][i] - df['KCSS'][i] * max(2 * 0.012 * df['TF_settle'][i] * 10000,
-                                                                0.02 * df['T_settle'][i] * 10000) * abs(
-                df['lag_position_T'][i])
-
-        df.to_csv(self.StepReverseSave_path, index=False)
-
-    # 分布建仓并止损
-    def Simulate_ZS(self):
+    def Simulate_ZS(self, df, stop_point, start_point):
         # df = self.GetPosition01()        #另一种平仓、开仓操作
-        df = self.GetPosition()
+        # df = self.GetPosition()
         df['position_T'] = df['position_T90'].copy() + df['position_T80'].copy() + df['position_T70'].copy() + df[
             'position_T60'].copy()
         df['position_TF'] = df['position_TF90'].copy() + df['position_TF80'].copy() + df['position_TF70'].copy() + df[
@@ -212,7 +219,7 @@ class StepReverse:
 
             if (df['lag_position_T'][i - 1] == 0) & (df['lag_position_T'][i] != 0):
                 df['KCSS'][i] = math.floor(df['ZHJE'][i - 1] / (
-                    max(2 * 0.012 * df['TF_settle'][i] * 10000, 0.02 * df['T_settle'][i] * 10000)) / 4)
+                    max(2 * 0.012 * df['TF_settle'][i - 1] * 10000, 0.02 * df['T_settle'][i - 1] * 10000)) / 4)
                 df['ZHJE'][i] = 10000 * df['KCSS'][i] * df['lag_position_T'][i] * (
                             df['T_settle'][i] - df['T_settle'][i - 1]) + \
                                 10000 * df['KCSS'][i] * df['lag_position_TF'][i] * (
@@ -255,10 +262,12 @@ class StepReverse:
             df['ismax'] = 0
 
         for i in range(1, len(df['ZHJE'])):
-            df['position_T_ZS'][i] = 0 if (df['Drawdowns'][i] >= 0.15) else df['lag_position_T'][i]
-            df['position_TF_ZS'][i] = 0 if (df['Drawdowns'][i] >= 0.15) else df['lag_position_TF'][i]
-            df['position_T_ZS'][i] = df['lag_position_T'][i] if (df['FCKC'][i] >= 0.2) else df['position_T_ZS'][i]
-            df['position_TF_ZS'][i] = df['lag_position_TF'][i] if (df['FCKC'][i] >= 0.2) else df['position_TF_ZS'][i]
+            df['position_T_ZS'][i] = 0 if (df['Drawdowns'][i - 1] >= stop_point) else df['lag_position_T'][i]
+            df['position_TF_ZS'][i] = 0 if (df['Drawdowns'][i - 1] >= stop_point) else df['lag_position_TF'][i]
+            df['position_T_ZS'][i] = df['lag_position_T'][i] if (df['FCKC'][i-1] >= start_point) else \
+            df['position_T_ZS'][i]
+            df['position_TF_ZS'][i] = df['lag_position_TF'][i] if (df['FCKC'][i-1] >= start_point) else \
+            df['position_TF_ZS'][i]
 
         df['ZHJE1'] = [1000000 for i in range(len(df['date_id']))]
         df['KCSS1'] = [0 for i in range(len(df['date_id']))]
@@ -267,7 +276,7 @@ class StepReverse:
         for i in range(1, len(df['ZHJE1'])):
             if (df['position_T_ZS'][i - 1] == 0) & (df['position_T_ZS'][i] != 0):
                 df['KCSS1'][i] = math.floor(df['ZHJE1'][i - 1] / (
-                    max(2 * 0.012 * df['TF_settle'][i] * 10000, 0.02 * df['T_settle'][i] * 10000)) / 4)
+                    max(2 * 0.012 * df['TF_settle'][i - 1] * 10000, 0.02 * df['T_settle'][i - 1] * 10000)) / 4)
                 df['ZHJE1'][i] = 10000 * df['KCSS1'][i] * df['position_T_ZS'][i] * (
                             df['T_settle'][i] - df['T_settle'][i - 1]) + \
                                  10000 * df['KCSS1'][i] * df['position_TF_ZS'][i] * (
@@ -285,13 +294,28 @@ class StepReverse:
                                                                    0.02 * df['T_settle'][i] * 10000) * abs(
                 df['position_T_ZS'][i])
 
-        df.to_csv(self.StepReverseZSSave_path, index=False)
+        # return df['ZHJE1']
+        df.to_csv(self.StepReverseZSSave_path ,index = False)
 
 
 def main():
-    test = StepReverse('T_TFirret.csv', 'ADPFutureClose2020-09-16.csv', 'StepReverse.csv', 'StepReverseZS.csv', 100,
+    test = StepReverse('T_TFirret.csv', 'ADPFutureClose2020-09-16.csv', 'StepReverse.csv', 'StepReverseZS01.csv', 100,
                        [90, 80, 70, 60, 50, 40, 30, 20, 10])
-    test.Simulate_ZS()
+    df_p = test.GetPosition01()
+    '''
+    start_point = 0.01
+    stop_point = 0.01
+    df = pd.DataFrame()
+    
+    while stop_point <= 0.21:
+        while start_point <= 0.21:
+            df[str(stop_point)+',  '+str(start_point)] = test.Simulate_ZS(df_p,stop_point,start_point)
+            start_point += 0.01
+        start_point = 0.1
+        stop_point += 0.01 
+    df.to_csv('test_start_stop.csv')
+    '''
+    test.Simulate_ZS(df_p, 0.15, 0.2)
 
 
 if __name__ == "__main__":

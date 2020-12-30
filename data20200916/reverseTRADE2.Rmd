@@ -31,8 +31,7 @@ library(TTR)
 ## R Markdown
 
 #反转策略设置止损
-止损平仓的方式主要是基于净值的回撤，当原净值曲线回撤超过一定比例后，进行平仓。然而这一方式无法在后续回复期间获得收益。所以增加反抽开仓线。反抽开仓线有两种增加方式，一种是以隐含收益率序列回复作为反抽线。第二种方式是以假设按照原先的仓位继续持仓，当后续净值回复后再进行开仓操作。
-为了方便验证，我们先使用第一种方式在全仓进行处理。
+止损平仓的方式主要是基于净值的回撤，当原净值曲线回撤超过一定比例后，进行平仓。然而这一方式无法在后续回复期间获得收益。假设按照原先的仓位继续持仓，当净值回复后在继续持仓。reverseTRADE2与reverseTRADE的不同之处在于reverseTRADE2的反抽开仓线，即本次交易的最大净值和最小净值的差额的百分比（例如20%）加上最小净值。
 ```{r}
 #读取每日连续合约及其隐含收益率以及五年十年国债实际利差和隐含收益率利差
 data1 <- read.csv("T_TFirret.csv")
@@ -134,9 +133,9 @@ data1 <- as.data.frame(data1 %>% mutate(position_T90 = ifelse(FutYHret <= quan10
 ```
 
 ```{r}
-steps = 2
-data1 <- as.data.frame(data1 %>% mutate(position_T = position_T90+position_T70,
-                                        position_TF = position_TF90+position_TF70))
+steps = 4
+data1 <- as.data.frame(data1 %>% mutate(position_T = position_T90+position_T80+position_T70+position_T60,
+                                        position_TF = position_TF90+position_TF80+position_TF70+position_TF60))
 data1$lag_position_T <- lag(data1$position_T)
 data1$lag_position_TF <- lag(data1$position_TF)
 data1 <- as.data.frame(data1 %>% mutate(lag_position_T = ifelse(is.na(lag_position_T),0,lag_position_T),
@@ -162,61 +161,61 @@ data1$XNJZ = 1000000
 #平仓后计算反抽收益
 data1$FCSY = 0
 #data1 <- subset(data1,data1$date_id < as.Date('2020-01-01'))
-zhisunxian <- 0.10
+zhisunxian <- 0.05
 fanchouxian <- 0.20
 #计算
 for (i in c(2:length(data1$date_id))) {
   # i=51
-  #开仓前
+  # 开仓首日
   if(data1$lag_position_T[i-1]==0 & data1$lag_position_T[i]!=0){
-    data1$KCSS[i] = floor(data1$ZHJE[i-1]/(max(2*0.012*data1$TF_settle[i-1]*10000,0.02*data1$T_settle[i-1]*10000)*steps))
-    data1$ZHJE[i] = 10000*data1$KCSS[i]*data1$lag_position_T[i]*(data1$T_settle[i]-data1$T_settle[i-1])+
-                    10000*data1$KCSS[i]*data1$lag_position_TF[i]*(data1$TF_settle[i]-data1$TF_settle[i-1]) + data1$ZHJE[i-1]
+    # 开仓手数以昨日真实账户净值和前一日的收盘价作为开仓手数（早盘开仓）
+    data1$KCSS[i] = floor(data1$ZHJE[i-1]/(max(2*0.012*data1$TF_close[i-1]*10000,0.02*data1$T_close[i-1]*10000)*steps))
+    # 今日收盘后的账户资金
+    data1$ZHJE[i] = 10000*data1$KCSS[i]*data1$lag_position_T[i]*(data1$T_close[i]-data1$T_close[i-1])+
+                    10000*data1$KCSS[i]*data1$lag_position_TF[i]*(data1$TF_close[i]-data1$TF_close[i-1]) + data1$ZHJE[i-1]
+    # 最大净值为前一日最大资金和今日账户资金最大值
     data1$MAXJZ[i] = max(data1$MAXJZ[i-1],data1$ZHJE[i])
+    # 最小净值为前一日最小资金和今日账户资金最小值
     data1$MINJZ[i] = min(data1$MINJZ[i-1],data1$ZHJE[i])
+    # 首日开仓将账户资金的值赋予虚拟账户的净值
     data1$XNJZ[i] = data1$ZHJE[i]
+    # 如果最大净值出现在过去，也就是首日亏损，则ismax=1
     if(data1$MAXJZ[i] > data1$ZHJE[i]){data1$ismax[i] = 1}
-    data1$XZZJ[i] = (data1$ZHJE[i] - data1$KCSS[i]*max(2*0.012*data1$TF_settle[i]*10000,0.02*data1$T_settle[i]*10000)*abs(data1$lag_position_T[i]))/data1$ZHJE[i]
+     # 计算闲置资金
+    data1$XZZJ[i] = (data1$ZHJE[i] - data1$KCSS[i]*max(2*0.012*data1$TF_close[i]*10000,0.02*data1$T_close[i]*10000)*abs(data1$lag_position_T[i]))/data1$ZHJE[i]
     }
   else{
-    #有仓位
+    # 非首日开仓
     if(data1$lag_position_T[i-1]!=0 & data1$lag_position_T[i]!=0){
+      # 顺眼上一日的持仓手数
       data1$KCSS[i] = data1$KCSS[i-1]
-      data1$XNJZ[i] = 10000*data1$KCSS[i]*data1$lag_position_T[i]*(data1$T_settle[i]-data1$T_settle[i-1])+
-          10000*data1$KCSS[i]*data1$lag_position_TF[i]*(data1$TF_settle[i]-data1$TF_settle[i-1]) + data1$XNJZ[i-1]
+      # 不确定真实账户是否开仓，用虚拟账户计算账户今日收盘后的净值
+      data1$XNJZ[i] = 10000*data1$KCSS[i]*data1$lag_position_T[i]*(data1$T_close[i]-data1$T_close[i-1])+
+          10000*data1$KCSS[i]*data1$lag_position_TF[i]*(data1$TF_close[i]-data1$TF_close[i-1]) + data1$XNJZ[i-1]
       data1$MAXJZ[i] = max(data1$MAXJZ[i-1],data1$XNJZ[i])
+      # 如果最大净值发生在今日之前，则今日的ismax为1
       if(data1$MAXJZ[i] > data1$XNJZ[i]){data1$ismax[i] = 1}
+      # 如果最大净值发生在今日，则真实账户有持仓，真实账户的金额等于虚拟持仓的金额
       if(data1$ismax[i] == 0){
-        #data1$MAXJZ[i] = max(data1$MAXJZ[i-1],data1$XNJZ[i])
-        #if(data1$MAXJZ[i] > data1$XNJZ[i]){data1$ismax[i] = 1}
         data1$MINJZ[i] = data1$XNJZ[i]
         data1$ZHJE[i] = data1$XNJZ[i]
-        data1$Drawdowns[i] = (data1$MAXJZ[i] - data1$MINJZ[i])/data1$MAXJZ[i]
-        data1$XZZJ[i] = (data1$ZHJE[i] - data1$KCSS[i]*max(2*0.012*data1$TF_settle[i]*10000,0.02*data1$T_settle[i]*10000)*abs(data1$lag_position_T[i]))/data1$ZHJE[i]
-        #if(data1$XNJZ[i] >= data1$FCSY[i-1]){
-          #data1$ZHJE[i] = 10000*data1$KCSS[i]*data1$lag_position_T[i]*(data1$T_settle[i]-data1$T_settle[i-1])+
-          #    10000*data1$KCSS[i]*data1$lag_position_TF[i]*(data1$TF_settle[i]-data1$TF_settle[i-1]) + data1$ZHJE[i-1]
-          #data1$XNJZ[i] = data1$ZHJE[i]
-          #data1$MAXJZ[i] = data1$ZHJE[i]
-          #data1$MINJZ[i] = data1$ZHJE[i]
-          #data1$KCSS[i] = floor(data1$ZHJE[i-1]/(max(2*0.012*data1$TF_settle[i-1]*10000,0.02*data1$T_settle[i-1]*10000)*steps))
-          #data1$XZZJ[i] = (data1$ZHJE[i] - data1$KCSS[i]*max(2*0.012*data1$TF_settle[i]*10000,0.02*data1$T_settle[i]*10000)*abs(data1$lag_position_T[i]))/data1$ZHJE[i]
-        #}
+        data1$Drawdowns[i] = (data1$MAXJZ[i] - data1$MINJZ[i])/data1$MAXJZ[i] # 此时最大净值等于虚拟净值等于账户净值等于最小净值，所以回撤为0
+        data1$XZZJ[i] = (data1$ZHJE[i] - data1$KCSS[i]*max(2*0.012*data1$TF_close[i]*10000,0.02*data1$T_close[i]*10000)*abs(data1$lag_position_T[i]))/data1$ZHJE[i]
       }
       if(data1$ismax[i]==1){
         data1$MINJZ[i] = min(data1$MINJZ[i-1],data1$XNJZ[i])
         data1$Drawdowns[i] = (data1$MAXJZ[i] - data1$MINJZ[i])/data1$MAXJZ[i]
         #data1$FCSY[i] = (data1$XNJZ[i]-data1$MINJZ[i])/abs(data1$MINJZ[i])
         data1$FCSY[i] = (data1$MAXJZ[i]-data1$MINJZ[i])*fanchouxian+data1$MINJZ[i]
-        if(data1$Drawdowns[i-1]>zhisunxian & data1$XNJZ[i] < data1$FCSY[i]){
+        if(data1$Drawdowns[i-1]>zhisunxian & data1$XNJZ[i-1] < data1$FCSY[i-1]){
           data1$ZHJE[i] = data1$ZHJE[i-1]
           data1$XZZJ[i] = 1
           }
         else{
-          if(data1$Drawdowns[i-1]>zhisunxian & data1$XNJZ[i] >= data1$FCSY[i]){
-            data1$KCSS[i] = floor(data1$ZHJE[i-1]/(max(2*0.012*data1$TF_settle[i-1]*10000,0.02*data1$T_settle[i-1]*10000)*steps))
-            #data1$ZHJE[i] = 10000*data1$KCSS[i]*data1$lag_position_T[i]*(data1$T_settle[i]-data1$T_settle[i-1])+
-              #10000*data1$KCSS[i]*data1$lag_position_TF[i]*(data1$TF_settle[i]-data1$TF_settle[i-1]) + data1$ZHJE[i-1]
+          if(data1$Drawdowns[i-1]>zhisunxian & data1$XNJZ[i-1] >= data1$FCSY[i-1]){
+            data1$KCSS[i] = floor(data1$ZHJE[i-1]/(max(2*0.012*data1$TF_close[i-1]*10000,0.02*data1$T_close[i-1]*10000)*steps))
+            #data1$ZHJE[i] = 10000*data1$KCSS[i]*data1$lag_position_T[i]*(data1$T_close[i]-data1$T_close[i-1])+
+              #10000*data1$KCSS[i]*data1$lag_position_TF[i]*(data1$TF_close[i]-data1$TF_close[i-1]) + data1$ZHJE[i-1]
             data1$ZHJE[i] = data1$ZHJE[i-1]
             data1$XNJZ[i] = data1$ZHJE[i]
             data1$ismax[i] = 0
@@ -226,7 +225,7 @@ for (i in c(2:length(data1$date_id))) {
             }
           else{
             data1$ZHJE[i] = data1$XNJZ[i]
-            data1$XZZJ[i] = (data1$ZHJE[i] - data1$KCSS[i]*max(2*0.012*data1$TF_settle[i]*10000,0.02*data1$T_settle[i]*10000)*abs(data1$lag_position_T[i]))/data1$ZHJE[i]
+            data1$XZZJ[i] = (data1$ZHJE[i]-data1$KCSS[i]*max(2*0.012*data1$TF_close[i]*10000,0.02*data1$T_close[i]*10000)*abs(data1$lag_position_T[i]))/data1$ZHJE[i]
           }
         }
       }

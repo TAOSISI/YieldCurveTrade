@@ -31,8 +31,8 @@ library(TTR)
 ## R Markdown
 
 #反转策略设置止损
-止损平仓的方式主要是基于净值的回撤，当原净值曲线回撤超过一定比例后，进行平仓。然而这一方式无法在后续回复期间获得收益。所以增加反抽开仓线。反抽开仓线有两种增加方式，一种是以隐含收益率序列回复作为反抽线。第二种方式是以假设按照原先的仓位继续持仓，当后续净值回复后再进行开仓操作。
-为了方便验证，我们先使用第二种方式在全仓进行处理。
+止损平仓的方式主要是基于净值的回撤，当原净值曲线回撤超过一定比例后，进行平仓。然而这一方式无法在后续回复期间获得收益。所以增加反抽开仓线。
+reverseTRADE的反抽开仓线为达到止损条件后，虚拟账户的最小净值上涨一定比例（如20%）再次开仓。
 ```{r}
 #读取每日连续合约及其隐含收益率以及五年十年国债实际利差和隐含收益率利差
 data1 <- read.csv("T_TFirret.csv")
@@ -43,15 +43,15 @@ data1 <- as.data.frame(data1 %>% mutate(quan90 = NA,quan80 = NA,quan70 = NA,quan
 # 过去n个交易日的不同分位点作为曲线交易的判断依据
 n = 100
 for (i in c(n:nrow(data1))) {
-  data1$quan90[i] <- quantile(data1$FutYHret[(i-n+1):i], 0.9, na.rm = TRUE)
-  data1$quan80[i] <- quantile(data1$FutYHret[(i-n+1):i], 0.8, na.rm = TRUE)
-  data1$quan70[i] <- quantile(data1$FutYHret[(i-n+1):i], 0.7, na.rm = TRUE)
-  data1$quan60[i] <- quantile(data1$FutYHret[(i-n+1):i], 0.6, na.rm = TRUE)
-  data1$quan50[i] <- quantile(data1$FutYHret[(i-n+1):i], 0.5, na.rm = TRUE)
-  data1$quan40[i] <- quantile(data1$FutYHret[(i-n+1):i], 0.4, na.rm = TRUE)
-  data1$quan30[i] <- quantile(data1$FutYHret[(i-n+1):i], 0.3, na.rm = TRUE)
-  data1$quan20[i] <- quantile(data1$FutYHret[(i-n+1):i], 0.2, na.rm = TRUE)
-  data1$quan10[i] <- quantile(data1$FutYHret[(i-n+1):i], 0.1, na.rm = TRUE)
+  data1$quan90[i] <- quantile(data1$FutYHret[(i-n):(i-1)], 0.9, na.rm = TRUE)
+  data1$quan80[i] <- quantile(data1$FutYHret[(i-n):(i-1)], 0.8, na.rm = TRUE)
+  data1$quan70[i] <- quantile(data1$FutYHret[(i-n):(i-1)], 0.7, na.rm = TRUE)
+  data1$quan60[i] <- quantile(data1$FutYHret[(i-n):(i-1)], 0.6, na.rm = TRUE)
+  data1$quan50[i] <- quantile(data1$FutYHret[(i-n):(i-1)], 0.5, na.rm = TRUE)
+  data1$quan40[i] <- quantile(data1$FutYHret[(i-n):(i-1)], 0.4, na.rm = TRUE)
+  data1$quan30[i] <- quantile(data1$FutYHret[(i-n):(i-1)], 0.3, na.rm = TRUE)
+  data1$quan20[i] <- quantile(data1$FutYHret[(i-n):(i-1)], 0.2, na.rm = TRUE)
+  data1$quan10[i] <- quantile(data1$FutYHret[(i-n):(i-1)], 0.1, na.rm = TRUE)
 }
 #write.csv(data1,"data2.csv")
 data1 <- na.omit(data1)
@@ -163,10 +163,13 @@ data1$ismax = 0
 data1$XNJZ = 1000000
 #平仓后计算反抽收益
 data1$FCSY = 0
+# 止损线和反抽线的比例设置
+zhisunxian <- 0.05
+fanchouxian <- 0.20
 # data1 <- subset(data1,data1$date_id < as.Date('2020-01-01'))
 #计算
 for (i in c(2:length(data1$date_id))) {
-  # i=202
+  # i=61
   # 上一日仓位为空，且今日仓位不为0，说明今日为首日开仓
   if(data1$lag_position_T[i-1]==0 & data1$lag_position_T[i]!=0){
     data1$KCSS[i] = floor(data1$ZHJE[i-1]/(max(2*0.012*data1$TF_settle[i-1]*10000,0.02*data1$T_settle[i-1]*10000)*steps))
@@ -175,7 +178,7 @@ for (i in c(2:length(data1$date_id))) {
     # 最大净值为前一日最大净值与当日净值最大值，解决了首日开仓净值变动的问题
     data1$MAXJZ[i] = max(data1$MAXJZ[i-1],data1$ZHJE[i])
     data1$MINJZ[i] = min(data1$MINJZ[i-1],data1$ZHJE[i])
-    # 引入虚拟净值，虚拟净值为止损平仓后，原持仓手数继续持仓的净值，用来计算反抽线
+    # 首日开仓将账户资金的值赋予虚拟账户的净值
     data1$XNJZ[i] = data1$ZHJE[i]
     # 如果首日最大净值大于账户金额，则ismax为1，表示开仓首日即亏损
     if(data1$MAXJZ[i] > data1$ZHJE[i]){data1$ismax[i] = 1}
@@ -183,51 +186,53 @@ for (i in c(2:length(data1$date_id))) {
     data1$XZZJ[i] = (data1$ZHJE[i] - data1$KCSS[i]*max(2*0.012*data1$TF_settle[i]*10000,0.02*data1$T_settle[i]*10000)*abs(data1$lag_position_T[i]))/data1$ZHJE[i]
     }
   else{
-    # 前一日有仓位且今日也有仓位
+    # 前一日有仓位且今日也有仓位，非首日开仓
     if(data1$lag_position_T[i-1]!=0 & data1$lag_position_T[i]!=0){
       # 延续上一日的仓位
       data1$KCSS[i] = data1$KCSS[i-1]
-      # 先计算虚拟持仓的资金
+      # 不确定真实账户是否开仓，用虚拟账户计算账户今日收盘后的净值
       data1$XNJZ[i] = 10000*data1$KCSS[i]*data1$lag_position_T[i]*(data1$T_settle[i]-data1$T_settle[i-1])+
           10000*data1$KCSS[i]*data1$lag_position_TF[i]*(data1$TF_settle[i]-data1$TF_settle[i-1]) + data1$XNJZ[i-1]
-      # 账户金额等于虚拟持仓的金额
-      data1$ZHJE[i] = data1$XNJZ[i]
-      data1$MAXJZ[i] = max(data1$MAXJZ[i-1],data1$ZHJE[i])
-      if(data1$MAXJZ[i] > data1$ZHJE[i]){data1$ismax[i] = 1}
+      # 以上一天的最大净值和当天的账户取最大值作为今日的最大净值
+      data1$MAXJZ[i] = max(data1$MAXJZ[i-1],data1$XNJZ[i])
+      # 如果今日的最大净值不是当日的账户净值，则今日ismax为1，意思是最大净值发生在今日之前
+      if(data1$MAXJZ[i] > data1$XNJZ[i]){data1$ismax[i] = 1}
+      # 如果最大净值发生在今日
       if(data1$ismax[i] == 0){
-        data1$MAXJZ[i] = max(data1$MAXJZ[i-1],data1$XNJZ[i])
-        if(data1$MAXJZ[i] > data1$XNJZ[i]){data1$ismax[i] = 1}
         data1$MINJZ[i] = data1$XNJZ[i]
+        data1$ZHJE[i] = data1$XNJZ[i]
         data1$Drawdowns[i] = (data1$MAXJZ[i] - data1$MINJZ[i])/data1$MAXJZ[i]
-        if(data1$FCSY[i-1]>=0.2){
-          data1$ZHJE[i] = 10000*data1$KCSS[i]*data1$lag_position_T[i]*(data1$T_settle[i]-data1$T_settle[i-1])+
-              10000*data1$KCSS[i]*data1$lag_position_TF[i]*(data1$TF_settle[i]-data1$TF_settle[i-1]) + data1$ZHJE[i-1]
-          data1$XNJZ[i] = data1$ZHJE[i]
-          data1$MAXJZ[i] = data1$ZHJE[i]
-          data1$MINJZ[i] = data1$ZHJE[i]
-          data1$KCSS[i] = floor(data1$ZHJE[i-1]/(max(2*0.012*data1$TF_settle[i-1]*10000,0.02*data1$T_settle[i-1]*10000)*steps))
-          data1$XZZJ[i] = (data1$ZHJE[i] - data1$KCSS[i]*max(2*0.012*data1$TF_settle[i]*10000,0.02*data1$T_settle[i]*10000)*abs(data1$lag_position_T[i]))/data1$ZHJE[i]
+        data1$XZZJ[i] = (data1$ZHJE[i] - data1$KCSS[i]*max(2*0.012*data1$TF_close[i]*10000,0.02*data1$T_close[i]*10000)*abs(data1$lag_position_T[i]))/data1$ZHJE[i]
         }
-      }
+      # 如果最大净值发生在今日之前或者重新开仓后当日亏损
       if(data1$ismax[i]==1){
+        # 最小净值为虚拟资金和前一日最小净值的最小值
         data1$MINJZ[i] = min(data1$MINJZ[i-1],data1$XNJZ[i])
+        # 最大回撤为当日最大净值与最小净值的差处于最大净值
         data1$Drawdowns[i] = (data1$MAXJZ[i] - data1$MINJZ[i])/data1$MAXJZ[i]
+        # 反抽收益为虚拟净值与最小净值的涨幅
         data1$FCSY[i] = (data1$XNJZ[i]-data1$MINJZ[i])/abs(data1$MINJZ[i])
-        if(data1$Drawdowns[i-1]>0.10 & data1$FCSY[i-1]<0.2){
+        # 如果前一天最大回撤大于10%反抽收益小于20%，那么账户净值不变（因为不会真实交易），闲置资金率为100%
+        if(data1$Drawdowns[i-1]>zhisunxian & data1$FCSY[i-1]<fanchouxian){
           data1$ZHJE[i] = data1$ZHJE[i-1]
           data1$XZZJ[i] = 1
           }
         else{
-          if(data1$FCSY[i-1]>=0.2){
+          # 如果前一日反抽收益大于20%，无论最大回撤为多少
+          if(data1$FCSY[i-1]>=fanchouxian){
+            # 重新开仓，计算前一日的真实账户资金以上一日结算价可以开仓多少手
             data1$KCSS[i] = floor(data1$ZHJE[i-1]/(max(2*0.012*data1$TF_settle[i-1]*10000,0.02*data1$T_settle[i-1]*10000)*steps))
-            #data1$ZHJE[i] = 10000*data1$KCSS[i]*data1$lag_position_T[i]*(data1$T_settle[i]-data1$T_settle[i-1])+
-              #10000*data1$KCSS[i]*data1$lag_position_TF[i]*(data1$TF_settle[i]-data1$TF_settle[i-1]) + data1$ZHJE[i-1]
-            data1$ZHJE[i] = data1$ZHJE[i-1]
+            # 早盘以上一日结算价开仓，当日收盘后账户净值
+            data1$ZHJE[i] = 10000*data1$KCSS[i]*data1$lag_position_T[i]*(data1$T_settle[i]-data1$T_settle[i-1])+
+              10000*data1$KCSS[i]*data1$lag_position_TF[i]*(data1$TF_settle[i]-data1$TF_settle[i-1]) + data1$ZHJE[i-1]
+            # data1$ZHJE[i] = data1$ZHJE[i-1] # 由于近日开仓，所以账户资金和上一日相同
+            # 此时虚拟账户得值归为账户资金的值
             data1$XNJZ[i] = data1$ZHJE[i]
+            # 新一轮开仓
             data1$ismax[i] = 0
             data1$MAXJZ[i] = data1$ZHJE[i]
             data1$MINJZ[i] = data1$ZHJE[i]
-            data1$XZZJ[i] = (data1$ZHJE[i]-data1$KCSS[i]*max(2*0.012*data1$TF_settle[i]*10000,0.02*data1$T_settle[i]*10000)*abs(data1$lag_position_T[i]))/data1$ZHJE[i]
+            data1$XZZJ[i] = 1
             }
           else{
             data1$ZHJE[i] = data1$XNJZ[i]

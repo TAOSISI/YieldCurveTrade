@@ -1,0 +1,170 @@
+---
+title: "国债期货利差趋势交易"
+author:
+  - 陶成思
+documentclass: ctexart
+output:
+  rticles::ctex:
+    fig_caption: yes
+    number_sections: yes
+    toc: yes
+classoption: "hyperref,"
+---
+```{r}
+knitr::opts_chunk$set(warning = F, message = F)
+```
+## 环境设置
+```{r}
+# envrionment
+rm(list=ls())
+gc()
+
+#读取包
+library(dplyr)
+library(zoo)
+library(graphics)
+library(ggplot2)
+library(PerformanceAnalytics)
+library(TTR)
+```
+
+## R Markdown
+
+# 趋势策略进阶
+当隐含收益率利差向上突破较高分位数时，预计未来利差将继续走阔，则当其回落至对应较高分位数后平仓。
+当隐含收益率利差向下下穿较高分位数后，则认为其会均值回复，则此时预计未来利差将缩小，则到达中位数后则平仓。
+```{r}
+#读取每日连续合约及其隐含收益率以及五年十年国债实际利差和隐含收益率利差
+data1 <- read.csv("T_TFirret.csv")
+# head(data1)
+data1$date_id <- as.Date(data1$date_id)
+data1 <- as.data.frame(data1 %>% mutate(quan90 = NA,quan80 = NA,quan70 = NA,quan60 = NA,quan50 = NA,
+                                        quan40 = NA,quan30 = NA,quan20 = NA,quan10 = NA))
+# 过去n个交易日的不同分位点作为曲线交易的判断依据
+n = 10
+for (i in c(n:nrow(data1))) {
+  data1$quan90[i] <- quantile(data1$FutYHret[(i-n):(i-1)], 0.9, na.rm = TRUE)
+  data1$quan80[i] <- quantile(data1$FutYHret[(i-n):(i-1)], 0.8, na.rm = TRUE)
+  data1$quan70[i] <- quantile(data1$FutYHret[(i-n):(i-1)], 0.7, na.rm = TRUE)
+  data1$quan60[i] <- quantile(data1$FutYHret[(i-n):(i-1)], 0.6, na.rm = TRUE)
+  data1$quan50[i] <- quantile(data1$FutYHret[(i-n):(i-1)], 0.5, na.rm = TRUE)
+  data1$quan40[i] <- quantile(data1$FutYHret[(i-n):(i-1)], 0.4, na.rm = TRUE)
+  data1$quan30[i] <- quantile(data1$FutYHret[(i-n):(i-1)], 0.3, na.rm = TRUE)
+  data1$quan20[i] <- quantile(data1$FutYHret[(i-n):(i-1)], 0.2, na.rm = TRUE)
+  data1$quan10[i] <- quantile(data1$FutYHret[(i-n):(i-1)], 0.1, na.rm = TRUE)
+}
+#write.csv(data1,"data2.csv")
+data1 <- na.omit(data1)
+# head(data1)
+# data1 <- subset(data1,data1$date > as.Date('2015-10-21'))
+# 读取国债期货收盘价和结算价
+priceData <- read.csv("ADPFutureClose2020-09-16.csv")
+#head(priceData)
+priceData$date_id <- as.Date(priceData$date_id)
+names(priceData)[5] <- "T_name"
+data1 <- merge(data1,priceData,by = c("date_id","T_name"),all.x = TRUE)
+data1 <- data1[,c("date_id","T_name","T_irret","close","settle","TF_name","TF_irret","FutYHret",
+                  "quan90","quan80","quan70","quan60","quan50","quan40","quan30","quan20","quan10")]
+names(data1)[4:5] <- c("T_close","T_settle")
+names(priceData)[5] <- "TF_name"    
+data1 <- merge(data1,priceData,by = c("date_id","TF_name"),all.x = TRUE)
+data1 <- data1[,c("date_id","T_name","T_irret","T_close","T_settle","TF_name","TF_irret","close","settle","FutYHret",
+                  "quan90","quan80","quan70","quan60","quan50","quan40","quan30","quan20","quan10")]
+names(data1)[8:9] <- c("TF_close","TF_settle")
+```
+
+我们对 5、 10 年期国债期货在 2015.08.17-2020.09.16期间的表现进行回测，假设初始本金为100万元，TF和T合约的比例始终保持为2:1，开仓时保持全额操作，且在下一次交易信号前不调整期货仓位。 每一次开仓时，在TF和T合约的数量选择上，我们采用的计算公式为：T合约开仓手数s=[开仓时账户金额/max(2*1.2%*p1，1*2%*p2)]。其中， p1 和 p2 分别为 5 年期和 10 年期国债期货合约的结算价，开仓手数向下取整。
+
+```{r}
+#用于判断是否突破了上限和下限
+data1 <- as.data.frame(data1 %>% mutate(upDown90 = ifelse(FutYHret >= quan90, 1,ifelse(FutYHret <= quan10, -1, NA)),
+                                        upDown80 = ifelse(FutYHret >= quan80, 1,ifelse(FutYHret <= quan20, -1, NA)),
+                                        upDown70 = ifelse(FutYHret >= quan70, 1,ifelse(FutYHret <= quan30, -1, NA)),
+                                        upDown60 = ifelse(FutYHret >= quan60, 1,ifelse(FutYHret <= quan40, -1, NA))))
+data1 <- as.data.frame(data1 %>% mutate(position_T90 = ifelse(FutYHret > quan10 & FutYHret < quan50,-1,0),
+                                        position_TF90 = ifelse(FutYHret > quan10 & FutYHret < quan50,2,0),
+                                        position_T80 = ifelse(FutYHret > quan20 & FutYHret < quan50,-1,0),
+                                        position_TF80 = ifelse(FutYHret > quan20 & FutYHret < quan50,2,0),
+                                        position_T70 = ifelse(FutYHret > quan30 & FutYHret < quan50,-1,0),
+                                        position_TF70 = ifelse(FutYHret > quan30 & FutYHret < quan50,2,0),
+                                        position_T60 = ifelse(FutYHret > quan40 & FutYHret < quan50,-1,0),
+                                        position_TF60 = ifelse(FutYHret > quan40 & FutYHret < quan50,2,0)))
+
+data1 <- as.data.frame(data1 %>% mutate(position_T90 = ifelse(FutYHret < quan90 & FutYHret >= quan50,1,position_T90),
+                                        position_TF90 = ifelse(FutYHret < quan90 & FutYHret >= quan50,-2,position_TF90),
+                                        position_T80 = ifelse(FutYHret < quan80 & FutYHret >= quan50,1,position_T80),
+                                        position_TF80 = ifelse(FutYHret < quan80 & FutYHret >= quan50,-2,position_TF80),
+                                        position_T70 = ifelse(FutYHret < quan70 & FutYHret >= quan50,1,position_T70),
+                                        position_TF70 = ifelse(FutYHret < quan70 & FutYHret >= quan50,-2,position_TF70),
+                                        position_T60 = ifelse(FutYHret < quan60 & FutYHret >= quan50,1,position_T60),
+                                        position_TF60 = ifelse(FutYHret < quan60 & FutYHret >= quan50,-2,position_TF60)))
+data1 <- as.data.frame(data1 %>% mutate(upDown90 = ifelse(abs(position_T90 - dplyr::lag(position_T90))==2 & is.na(upDown90),0,upDown90),
+                                        upDown80 = ifelse(abs(position_T80 - dplyr::lag(position_T80))==2 & is.na(upDown80),0,upDown80),
+                                        upDown70 = ifelse(abs(position_T70 - dplyr::lag(position_T70))==2 & is.na(upDown70),0,upDown70),
+                                        upDown60 = ifelse(abs(position_T60 - dplyr::lag(position_T60))==2 & is.na(upDown60),0,upDown60)))
+data1 <- as.data.frame(data1 %>% mutate(upDown90 = na.locf0(upDown90),upDown80 = na.locf0(upDown80),
+                                        upDown70 = na.locf0(upDown70),upDown60 = na.locf0(upDown60)))
+data1 <- as.data.frame(data1 %>% mutate(position_T90 = ifelse(upDown90 == -1 & FutYHret > quan10 & FutYHret < quan50,-1,0),
+                                        position_TF90 = ifelse(upDown90 == -1 & FutYHret > quan10 & FutYHret < quan50,2,0),
+                                        position_T80 = ifelse(upDown80 == -1 & FutYHret > quan20 & FutYHret < quan50,-1,0),
+                                        position_TF80 = ifelse(upDown80 == -1 & FutYHret > quan20 & FutYHret < quan50,2,0),
+                                        position_T70 = ifelse(upDown70 == -1 & FutYHret > quan30 & FutYHret < quan50,-1,0),
+                                        position_TF70 = ifelse(upDown70 == -1 & FutYHret > quan30 & FutYHret < quan50,2,0),
+                                        position_T60 = ifelse(upDown60 == -1 & FutYHret > quan40 & FutYHret < quan50,-1,0),
+                                        position_TF60 = ifelse(upDown60 == -1 & FutYHret > quan40 & FutYHret < quan50,2,0)))
+data1 <- as.data.frame(data1 %>% mutate(position_T90 = ifelse(upDown90 == 1 & FutYHret < quan90 & FutYHret >= quan50,1,position_T90),
+                                        position_TF90 = ifelse(upDown90 == 1 & FutYHret < quan90 & FutYHret >= quan50,-2,position_TF90),
+                                        position_T80 = ifelse(upDown80 == 1 & FutYHret < quan80 & FutYHret >= quan50,1,position_T80),
+                                        position_TF80 = ifelse(upDown80 == 1 & FutYHret < quan80 & FutYHret >= quan50,-2,position_TF80),
+                                        position_T70 = ifelse(upDown70 == 1 & FutYHret < quan70 & FutYHret >= quan50,1,position_T70),
+                                        position_TF70 = ifelse(upDown70 == 1 & FutYHret < quan70 & FutYHret >= quan50,-2,position_TF70),
+                                        position_T60 = ifelse(upDown60 == 1 & FutYHret < quan60 & FutYHret >= quan50,1,position_T60),
+                                        position_TF60 = ifelse(upDown60 == 1 & FutYHret < quan60 & FutYHret >= quan50,-2,position_TF60)))
+data1 <- as.data.frame(data1 %>% mutate(position_T90 = ifelse(FutYHret >= quan90, -1,ifelse(FutYHret <= quan10, 1, position_T90)),
+                                        position_T80 = ifelse(FutYHret >= quan80, -1,ifelse(FutYHret <= quan20, 1, position_T80)),
+                                        position_T70 = ifelse(FutYHret >= quan70, -1,ifelse(FutYHret <= quan30, 1, position_T70)),
+                                        position_T60 = ifelse(FutYHret >= quan60, -1,ifelse(FutYHret <= quan40, 1, position_T60)),
+                                        position_TF90 = ifelse(FutYHret >= quan90, 2,ifelse(FutYHret <= quan10, -2, position_TF90)),
+                                        position_TF80 = ifelse(FutYHret >= quan80, 2,ifelse(FutYHret <= quan20, -2, position_TF80)),
+                                        position_TF70 = ifelse(FutYHret >= quan70, 2,ifelse(FutYHret <= quan30, -2, position_TF70)),
+                                        position_TF60 = ifelse(FutYHret >= quan60, 2,ifelse(FutYHret <= quan40, -2, position_TF60))))
+```
+
+```{r}
+data1 <- as.data.frame(data1 %>% mutate(position_T = position_T70,position_TF = position_TF70))
+data1$lag_position_T <- lag(data1$position_T)
+data1$lag_position_TF <- lag(data1$position_TF)
+data1 <- as.data.frame(data1 %>% mutate(lag_position_T = ifelse(is.na(lag_position_T),0,lag_position_T),
+                                        lag_position_TF = ifelse(is.na(lag_position_TF),0,lag_position_TF)))
+
+#计算合约开仓时账户金额
+data1$ZHJE <- 1000000
+#计算合约开仓手数
+data1$KCSS <- 0
+for (i in c(2:length(data1$date_id))) {
+  # i=286
+  if(data1$lag_position_T[i-1]==0 & data1$lag_position_T[i]!=0){
+    data1$KCSS[i] = floor(data1$ZHJE[i-1]/max(2*0.012*data1$TF_settle[i]*10000,0.02*data1$T_settle[i]*10000))
+    data1$ZHJE[i] = 10000*data1$KCSS[i]*data1$lag_position_T[i]*(data1$T_settle[i]-data1$T_settle[i-1])+
+                    10000*data1$KCSS[i]*data1$lag_position_TF[i]*(data1$TF_settle[i]-data1$TF_settle[i-1]) + data1$ZHJE[i-1]
+  }
+  else{
+    if(data1$lag_position_T[i-1]!=0 & data1$lag_position_T[i]!=0){
+      data1$KCSS[i] = data1$KCSS[i-1]
+      data1$ZHJE[i] = 10000*data1$KCSS[i]*data1$lag_position_T[i]*(data1$T_settle[i]-data1$T_settle[i-1])+
+        10000*data1$KCSS[i]*data1$lag_position_TF[i]*(data1$TF_settle[i]-data1$TF_settle[i-1]) + data1$ZHJE[i-1]
+    }
+    else{
+      data1$KCSS[i] = 0
+      data1$ZHJE[i] = data1$ZHJE[i-1]
+    }
+  }
+}
+ggplot(data = data1,aes(date_id,ZHJE)) + geom_line()
+data1$date_id <- as.Date(data1$date_id)
+data1$return <- data1$ZHJE/lag(data1$ZHJE)-1
+data1$return[1] <- 0
+maxDrawdown(data1$return)
+Return.annualized(data1$return,scale = 252)
+write.csv(data1,"data1.csv")
+```

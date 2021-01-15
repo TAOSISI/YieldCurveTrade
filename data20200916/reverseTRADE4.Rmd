@@ -136,9 +136,9 @@ data1 <- as.data.frame(data1 %>% mutate(position_T90 = ifelse(FutYHret <= quan10
 
 ```{r}
 #分步持仓
-steps = 4
-data1 <- as.data.frame(data1 %>% mutate(position_T = position_T90+position_T80+position_T70+position_T60,
-                                        position_TF = position_TF90+position_TF80+position_TF70+position_TF60))
+steps = 1
+data1 <- as.data.frame(data1 %>% mutate(position_T = position_T90,
+                                        position_TF = position_TF90))
 data1$lag_position_T <- lag(data1$position_T)
 data1$lag_position_TF <- lag(data1$position_TF)
 data1 <- as.data.frame(data1 %>% mutate(lag_position_T = ifelse(is.na(lag_position_T),0,lag_position_T),
@@ -167,7 +167,7 @@ data1$XNJZ = 1000000
 data1$FCSY = 0
 # 止损线和反抽线的比例设置
 zhisunxian <- 0.05
-fanchouxian <- 0.20
+fanchouxian <- 0.10
 # data1 <- subset(data1,data1$date_id < as.Date('2020-01-01'))
 #计算
 for (i in c(2:length(data1$date_id))) {
@@ -263,6 +263,6 @@ data1$return[1] <- 0
 mean(data1$XZZJ)
 maxDrawdown(data1$return)
 Return.annualized(data1$return,scale = 252)
-write.csv(data1,"data1.csv")
+write.csv(data1,"data2.csv")
 ```
 
